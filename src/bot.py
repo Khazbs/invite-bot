@@ -67,7 +67,6 @@ async def select(ctx, code=None):
 @commands.guild_only()
 @commands.check(is_from_command_channel)
 async def create(ctx, code=None):
-	'''**Create** and select a new invite code, either specified, or generated if left blank.'''
 	if not code:
 		code = generate_code()
 	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
