@@ -4,10 +4,15 @@ import dateparser
 import os
 
 import db
+import strings as s
 
 # intents = discord.Intents(guilds=True, members=True, messages=True)
 # bot = commands.Bot(command_prefix='!', intents=intents)
-bot = commands.Bot(command_prefix='!')
+bot = commands.Bot(command_prefix='!', help_command=None)
+
+
+class UserError(commands.CommandError):
+	pass
 
 
 def is_from_command_channel(ctx):
@@ -43,157 +48,183 @@ def parse_n(n_string):
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
+async def select(ctx, code=None):
+	if not code:
+		raise UserError(s.error_code_missing())
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
+	if not invite:
+		raise UserError(s.error_not_found(code))
+	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
+	for existing_invite in existing_invites:
+		existing_invite.is_selected = existing_invite == invite
+	db.Invite.bulk_update(existing_invites, fields=(
+		db.Invite.is_selected,
+	))
+	await ctx.send(s.success_select(invite.code))
+
+
+@bot.command()
+@commands.guild_only()
+@commands.check(is_from_command_channel)
 async def create(ctx, code=None):
+	'''**Create** and select a new invite code, either specified, or generated if left blank.'''
 	if not code:
 		code = generate_code()
-	invite = db.Invite.get_or_none(code=code)
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
 	if invite:
-		await ctx.send(f'{invite} already exists')
-		return
+		raise UserError(s.error_exists(invite.code))
+	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
+	for existing_invite in existing_invites:
+		existing_invite.is_selected = False
+	db.Invite.bulk_update(existing_invites, fields=(
+		db.Invite.is_selected,
+	))
 	invite = db.Invite.create(code=code, guild=ctx.guild.id)
-	await ctx.send(f'{invite} now created')
+	await ctx.send(s.success_create(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def activate(ctx, code):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def activate(ctx):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
+		raise UserError(s.error_not_selected())
 	if invite.is_active:
-		await ctx.send(f'{invite} already active')
-		return
+		raise UserError(s.error_active(invite.code))
 	invite.is_active = True
 	invite.save()
-	await ctx.send(f'{invite} now activated')
+	await ctx.send(s.success_activate(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def deactivate(ctx, code):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def deactivate(ctx):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
+		raise UserError(s.error_not_selected())
 	if not invite.is_active:
-		await ctx.send(f'{code} already inactive')
-		return
+		raise UserError(s.error_inactive(invite.code))
 	invite.is_active = False
 	invite.save()
-	await ctx.send(f'{invite} now deactivated')
+	await ctx.send(s.success_deactivate(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def valid_from(ctx, code, *dt_strings):
-	dt_string = ' '.join(dt_strings)
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def begin(ctx, *dt_strings):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
+		raise UserError(s.error_not_selected())
+	dt_string = ' '.join(dt_strings)
 	dt = parse_from_dt(dt_string)
 	if not dt:
-		await ctx.send(f'{dt_string} datetime not recognized')
-		return
-	invite.valid_from = dt.timestamp() * 1000
+		raise UserError(s.error_begin_datetime(dt_string))
+	invite.begins_ts = dt.timestamp() * 1000
 	invite.save()
-	await ctx.send(f'{invite} now valid from {dt}')
+	await ctx.send(s.success_begin(invite.code, dt))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def valid_from_anytime(ctx, code):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def begin_anytime(ctx):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
-	invite.valid_from = None
+		raise UserError(s.error_not_selected())
+	invite.begins_ts = None
 	invite.save()
-	await ctx.send(f'{invite} now valid from anytime')
+	await ctx.send(s.success_begin_anytime(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def valid_to(ctx, code, *dt_strings):
+async def expire(ctx, *dt_strings):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
+	if not invite:
+		raise UserError(s.error_not_selected())
 	dt_string = ' '.join(dt_strings)
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
-	if not invite:
-		await ctx.send(f'{code} not found')
-		return
 	dt = parse_to_dt(dt_string)
 	if not dt:
-		await ctx.send(f'{dt_string} datetime not recognized')
-		return
-	invite.valid_to = dt.timestamp() * 1000
+		raise UserError(s.error_expire_datetime(dt_string))
+	invite.expires_ts = dt.timestamp() * 1000
 	invite.save()
-	await ctx.send(f'{invite} now valid to {dt}')
+	await ctx.send(s.success_expire(invite.code, dt))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def valid_to_anytime(ctx, code):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def never_expire(ctx):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
-	invite.valid_from = None
+		raise UserError(s.error_not_selected())
+	invite.expires_ts = None
 	invite.save()
-	await ctx.send(f'{invite} now valid from anytime')
+	await ctx.send(s.success_never_expire(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def limit_uses(ctx, code, n_string):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def limit(ctx, *n_strings):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
+		raise UserError(s.error_not_selected())
+	n_string = ''.join(n_strings)
 	n = parse_n(n_string)
 	if not n:
-		await ctx.send(f'{n_string} is not a decimal natural number')
-		return
-	invite.max_uses = n
+		raise UserError(s.error_limit_number(n_string))
+	invite.uses = n
 	invite.save()
-	await ctx.send(f'{invite} now limited to {n} uses')
+	await ctx.send(s.success_limit(invite.code, n))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def unlimit_uses(ctx, code):
-	invite = db.Invite.get_or_none(code=code, guild=ctx.guild.id)
+async def unlimit(ctx):
+	invite = db.Invite.get_or_none(guild=ctx.guild.id, is_selected=True)
 	if not invite:
-		await ctx.send(f'{code} not found')
-		return
+		raise UserError(s.error_not_selected())
 	invite.max_uses = None
 	invite.save()
-	await ctx.send(f'{invite} now unlimited in uses')
+	await ctx.send(s.success_unlimit(invite.code))
 
 
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
 async def list_all(ctx):
-	invites = db.Invite.select().where(
-		db.Invite.guild == ctx.guild.id
-	)
-	if not invites:
-		await ctx.send('No invites yet')
-		return
-	await ctx.send(f'{", ".join(invite.code for invite in invites)}')
+	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
+	if not existing_invites:
+		raise UserError(s.error_no_invites())
+	await ctx.send(', '.join(
+		existing_invite.code for existing_invite in existing_invites
+	))
+
+
+@bot.command()
+@commands.guild_only()
+@commands.check(is_from_command_channel)
+async def help(ctx):
+	await ctx.send(s.help())
 
 
 @bot.event
 async def on_command_error(ctx, error):
-	await ctx.send(f'Uh-oh, {error}')
+	if isinstance(error, commands.CommandNotFound):
+		msg = str(error)
+		command = msg[msg.find('"') + 1:msg.rfind('"')]
+		await ctx.send(s.error_unknown_command(command))
+	elif isinstance(error, UserError):
+		await ctx.send(str(error))
+	else:
+		await ctx.send(s.error_server())
+		raise error
 
 
 def run():

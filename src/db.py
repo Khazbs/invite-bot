@@ -11,12 +11,17 @@ class BaseModel(pw.Model):
 
 
 class Invite(BaseModel):
-	code = pw.CharField(primary_key=True)
+	code = pw.CharField()
 	guild = pw.CharField()
-	max_uses = pw.BigIntegerField(null=True)
+	uses = pw.BigIntegerField(null=True)
 	is_active = pw.BooleanField(default=False)
-	valid_from_ts = pw.BigIntegerField(null=True)
-	valid_to_ts = pw.BigIntegerField(null=True)
+	is_selected = pw.BooleanField(default=True)
+	begins_ts = pw.BigIntegerField(null=True)
+	expires_ts = pw.BigIntegerField(null=True)
+	class Meta:
+		indexes = (
+			(('code', 'guild'), True),
+		)
 
 
 class InviteUse(BaseModel):
