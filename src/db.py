@@ -33,6 +33,8 @@ class InviteUse(BaseModel):
 	invite = pw.ForeignKeyField(Invite, backref='uses')
 	user = pw.CharField()
 	used_ts = pw.BigIntegerField()
+	class Meta:
+		primary_key = pw.CompositeKey('invite', 'user')
 
 
 def init():

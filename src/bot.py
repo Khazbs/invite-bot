@@ -28,10 +28,14 @@ def generate_code():
 async def give_role(member_id, guild_id):
 	guild = await bot.fetch_guild(guild_id)
 	member = await guild.fetch_member(member_id)
+	for role in member.roles:
+		if role.name == os.environ['ROLE']:
+			return False
 	await member.add_roles(*(
 		role for role in guild.roles
 		if role.name == os.environ['ROLE']
 	))
+	return True
 
 
 def parse_from_dt(dt_string):
@@ -85,9 +89,10 @@ async def create_channels(guild):
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def select(ctx, code=None):
-	if not code:
+async def select(ctx, *code_strings):
+	if not code_strings:
 		raise UserError(s.error_code_missing())
+	code = ' '.join(code_strings)
 	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
 	if not invite:
 		raise UserError(s.error_not_found(code))
@@ -107,8 +112,10 @@ async def select(ctx, code=None):
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
-async def create(ctx, code=None):
-	if not code:
+async def create(ctx, *code_strings):
+	if code_strings:
+		code = ' '.join(code_strings)
+	else:
 		code = generate_code()
 	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
 	if invite:
@@ -293,13 +300,13 @@ async def on_raw_reaction_add(raw_reaction):
 
 
 @bot.event
-async def on_message(message):
+async def on_message(message: discord.Message):
 	if message.author.bot:
 		return
 	await bot.process_commands(message)
 	if isinstance(message.channel, discord.channel.DMChannel):
 		candidate = db.Candidate.get_or_none(user=message.author.id)
-		if not candidate:
+		if not (candidate and candidate.guild):
 			return
 		invite = db.Invite.get_or_none(
 			guild=candidate.guild,
@@ -315,12 +322,19 @@ async def on_message(message):
 					or invite.max_uses > len(invite.uses))):
 			await message.author.send(s.invite_invalid())
 			return
-		await give_role(candidate.user, candidate.guild)
+		if db.InviteUse.get_or_none(invite=invite.id, user=candidate.user):
+			await message.author.send(s.invite_invalid())
+			return
+		if not await give_role(candidate.user, candidate.guild):
+			await message.author.send(s.invite_invalid())
+			return
 		db.InviteUse.create(
-			invite=invite,
+			invite=invite.id,
 			user=candidate.user,
 			used_ts=time() * 1000
 		)
+		candidate.guild = None
+		candidate.save()
 		await message.author.send(s.invite_valid())
 
 

@@ -49,8 +49,8 @@ USAGE_HELP = '\nUsage: `!help`'
 
 INVITE_GUILD = 'Want to become a verified member? React in this channel and DM me your invite code to receive the role!'
 INVITE_DM = 'Hello! Want to become a verified member on `{}`? Send me your invite code to receive the role!'
-INVITE_VALID = 'Congratulations! You have just become a verified member.'
-INVITE_INVALID = 'Sorry! This invite code is not valid.'
+INVITE_VALID = 'Congratulations, you have just become a verified member!'
+INVITE_INVALID = 'Sorry, this code is invalid, pending, expired, deactivated, useless or already used.'
 
 
 def invite_guild():
