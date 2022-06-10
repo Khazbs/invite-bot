@@ -1,4 +1,3 @@
-from multiprocessing import AuthenticationError
 from discord.ext import commands
 from time import time
 import discord
@@ -22,7 +21,7 @@ def is_from_command_channel(ctx):
 
 
 def generate_code():
-	return 'TODO'
+	return 'GENERATION NOT YET IMPLEMENTED'
 
 
 async def give_role(member_id, guild_id):
@@ -61,7 +60,7 @@ def parse_n(n_string):
 
 
 async def create_channels(guild):
-	await guild.create_text_channel(os.environ['COMMAND_CHANNEL'],
+	command_ch = await guild.create_text_channel(os.environ['COMMAND_CHANNEL'],
 		overwrites={
 			bot.user: discord.PermissionOverwrite(
 				read_messages=True,
@@ -72,7 +71,7 @@ async def create_channels(guild):
 			),
 		}
 	)
-	channel: discord.TextChannel = await guild.create_text_channel(os.environ['INVITE_CHANNEL'],
+	invite_ch = await guild.create_text_channel(os.environ['INVITE_CHANNEL'],
 		overwrites={
 			bot.user: discord.PermissionOverwrite(
 				send_messages=True,
@@ -82,7 +81,8 @@ async def create_channels(guild):
 			),
 		}
 	)
-	message: discord.Message = await channel.send(s.invite_guild())
+	await command_ch.send(s.invite_setup())
+	message = await invite_ch.send(s.invite_guild())
 	await message.add_reaction('🤙')
 
 
@@ -300,7 +300,7 @@ async def on_raw_reaction_add(raw_reaction):
 
 
 @bot.event
-async def on_message(message: discord.Message):
+async def on_message(message):
 	if message.author.bot:
 		return
 	await bot.process_commands(message)

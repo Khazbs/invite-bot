@@ -51,6 +51,9 @@ INVITE_GUILD = 'Want to become a verified member? React in this channel and DM m
 INVITE_DM = 'Hello! Want to become a verified member on `{}`? Send me your invite code to receive the role!'
 INVITE_VALID = 'Congratulations, you have just become a verified member!'
 INVITE_INVALID = 'Sorry, this code is invalid, pending, expired, deactivated, useless or already used.'
+INVITE_SETUP = ('Hello! In this private channel I will help you **create** and set up the invite codes. '
+	'Please make sure that I have a role higher than the member role, otherwise Discord will not let me manage it. '
+	'All commands are described in the **help** section.\n')
 
 
 def invite_guild():
@@ -67,6 +70,12 @@ def invite_valid():
 
 def invite_invalid():
 	return (INVITE_INVALID)
+
+
+def invite_setup():
+	return (INVITE_SETUP
+		+ USAGE_CREATE
+		+ USAGE_HELP)
 
 
 def error_unknown_command(command):
