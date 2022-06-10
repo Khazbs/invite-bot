@@ -1,4 +1,6 @@
+from multiprocessing import AuthenticationError
 from discord.ext import commands
+from time import time
 import discord
 import dateparser
 import os
@@ -6,8 +8,6 @@ import os
 import db
 import strings as s
 
-# intents = discord.Intents(guilds=True, members=True, messages=True)
-# bot = commands.Bot(command_prefix='!', intents=intents)
 bot = commands.Bot(command_prefix='!', help_command=None)
 
 
@@ -16,11 +16,22 @@ class UserError(commands.CommandError):
 
 
 def is_from_command_channel(ctx):
-	return ctx.message.channel.name == os.environ['COMMAND_CHANNEL']
+	channel = ctx.message.channel
+	return (channel.name == os.environ['COMMAND_CHANNEL']
+		and channel.overwrites[ctx.guild.default_role].read_messages is False)
 
 
 def generate_code():
 	return 'TODO'
+
+
+async def give_role(member_id, guild_id):
+	guild = await bot.fetch_guild(guild_id)
+	member = await guild.fetch_member(member_id)
+	await member.add_roles(*(
+		role for role in guild.roles
+		if role.name == os.environ['ROLE']
+	))
 
 
 def parse_from_dt(dt_string):
@@ -45,6 +56,32 @@ def parse_n(n_string):
 	return n
 
 
+async def create_channels(guild):
+	await guild.create_text_channel(os.environ['COMMAND_CHANNEL'],
+		overwrites={
+			bot.user: discord.PermissionOverwrite(
+				read_messages=True,
+				send_messages=True
+			),
+			guild.default_role: discord.PermissionOverwrite(
+				read_messages=False
+			),
+		}
+	)
+	channel: discord.TextChannel = await guild.create_text_channel(os.environ['INVITE_CHANNEL'],
+		overwrites={
+			bot.user: discord.PermissionOverwrite(
+				send_messages=True,
+			),
+			guild.default_role: discord.PermissionOverwrite(
+				send_messages=False
+			),
+		}
+	)
+	message: discord.Message = await channel.send(s.invite_guild())
+	await message.add_reaction('🤙')
+
+
 @bot.command()
 @commands.guild_only()
 @commands.check(is_from_command_channel)
@@ -54,12 +91,16 @@ async def select(ctx, code=None):
 	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
 	if not invite:
 		raise UserError(s.error_not_found(code))
-	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
-	for existing_invite in existing_invites:
-		existing_invite.is_selected = existing_invite == invite
-	db.Invite.bulk_update(existing_invites, fields=(
-		db.Invite.is_selected,
-	))
+	existing_invites = list(db.Invite
+		.select()
+		.where(db.Invite.guild == ctx.guild.id)
+	)
+	if existing_invites:
+		for existing_invite in existing_invites:
+			existing_invite.is_selected = existing_invite == invite
+		db.Invite.bulk_update(existing_invites, fields=(
+			db.Invite.is_selected,
+		))
 	await ctx.send(s.success_select(invite.code))
 
 
@@ -72,12 +113,16 @@ async def create(ctx, code=None):
 	invite = db.Invite.get_or_none(guild=ctx.guild.id, code=code)
 	if invite:
 		raise UserError(s.error_exists(invite.code))
-	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
-	for existing_invite in existing_invites:
-		existing_invite.is_selected = False
-	db.Invite.bulk_update(existing_invites, fields=(
-		db.Invite.is_selected,
-	))
+	existing_invites = list(db.Invite
+		.select()
+		.where(db.Invite.guild == ctx.guild.id)
+	)
+	if existing_invites:
+		for existing_invite in existing_invites:
+			existing_invite.is_selected = False
+		db.Invite.bulk_update(existing_invites, fields=(
+			db.Invite.is_selected,
+		))
 	invite = db.Invite.create(code=code, guild=ctx.guild.id)
 	await ctx.send(s.success_create(invite.code))
 
@@ -177,7 +222,7 @@ async def limit(ctx, *n_strings):
 	n = parse_n(n_string)
 	if not n:
 		raise UserError(s.error_limit_number(n_string))
-	invite.uses = n
+	invite.max_uses = n
 	invite.save()
 	await ctx.send(s.success_limit(invite.code, n))
 
@@ -198,7 +243,10 @@ async def unlimit(ctx):
 @commands.guild_only()
 @commands.check(is_from_command_channel)
 async def list_all(ctx):
-	existing_invites = list(db.Invite.select().where(db.Invite.guild == ctx.guild.id))
+	existing_invites = list(db.Invite
+		.select()
+		.where(db.Invite.guild == ctx.guild.id)
+	)
 	if not existing_invites:
 		raise UserError(s.error_no_invites())
 	await ctx.send(', '.join(
@@ -221,9 +269,64 @@ async def on_command_error(ctx, error):
 		await ctx.send(s.error_unknown_command(command))
 	elif isinstance(error, UserError):
 		await ctx.send(str(error))
+	elif isinstance(error, commands.errors.CheckFailure):
+		raise error
 	else:
 		await ctx.send(s.error_server())
 		raise error
+
+
+@bot.event
+async def on_raw_reaction_add(raw_reaction):
+	channel = await bot.fetch_channel(raw_reaction.channel_id)
+	if not isinstance(channel, discord.abc.GuildChannel):
+		return
+	if channel.name == os.environ['INVITE_CHANNEL']:
+		member = raw_reaction.member
+		if member.bot:
+			return
+		guild = await bot.fetch_guild(raw_reaction.guild_id)
+		candidate, created = db.Candidate.get_or_create(user=member.id)
+		candidate.guild = guild.id
+		candidate.save()
+		await member.send(s.invite_dm(guild.name))
+
+
+@bot.event
+async def on_message(message):
+	if message.author.bot:
+		return
+	await bot.process_commands(message)
+	if isinstance(message.channel, discord.channel.DMChannel):
+		candidate = db.Candidate.get_or_none(user=message.author.id)
+		if not candidate:
+			return
+		invite = db.Invite.get_or_none(
+			guild=candidate.guild,
+			code=message.content
+		)
+		if not (invite
+				and invite.is_active
+				and (not invite.begins_ts
+					or invite.begins_ts <= time() * 1000)
+				and (not invite.expires_ts
+					or invite.expires_ts > time() * 1000)
+				and (not invite.max_uses
+					or invite.max_uses > len(invite.uses))):
+			await message.author.send(s.invite_invalid())
+			return
+		await give_role(candidate.user, candidate.guild)
+		db.InviteUse.create(
+			invite=invite,
+			user=candidate.user,
+			used_ts=time() * 1000
+		)
+		await message.author.send(s.invite_valid())
+
+
+@bot.event
+async def on_guild_join(guild):
+	await create_channels(guild)
 
 
 def run():

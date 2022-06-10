@@ -19,7 +19,7 @@ SUCCESS_BEGIN_ANYTIME = 'Invite code `{}` will begin working anytime.\n\nIf you 
 SUCCESS_EXPIRE = 'Invite code `{}` will expire at {}.\n\nIf you need, you can set it to **never expire**.'
 SUCCESS_NEVER_EXPIRE = 'Invite code `{}` will never expire.\n\nIf you need, you can set it to **expire** at certain time.'
 SUCCESS_LIMIT = 'Invite code `{}` will work for {} users.\n\nIf you need, you can **unlimit** this number.'
-SUCCESS_UNLIMIT = 'Invite code `{}` will work for any number of users.\n\nIf you need, you can set the **limit**.'
+SUCCESS_UNLIMIT = 'Invite code `{}` will work for any number of users.\n\nIf you need, you can **limit** this number.'
 
 PURPOSE_CREATE = '**Create** and select a new invite code, either specified, or generated if left blank.'
 PURPOSE_SELECT = '**Select** an existing invite code to modify.'
@@ -46,6 +46,27 @@ USAGE_LIMIT = '\nUsage: `!limit <n_users>`, e.g. `!limit 10`'
 USAGE_UNLIMIT = '\nUsage: `!unlimit`'
 USAGE_LIST_ALL = '\nUsage: `!list_all`'
 USAGE_HELP = '\nUsage: `!help`'
+
+INVITE_GUILD = 'Want to become a verified member? React in this channel and DM me your invite code to receive the role!'
+INVITE_DM = 'Hello! Want to become a verified member on `{}`? Send me your invite code to receive the role!'
+INVITE_VALID = 'Congratulations! You have just become a verified member.'
+INVITE_INVALID = 'Sorry! This invite code is not valid.'
+
+
+def invite_guild():
+	return (INVITE_GUILD)
+
+
+def invite_dm(guild_name):
+	return (INVITE_DM.format(guild_name))
+
+
+def invite_valid():
+	return (INVITE_VALID)
+
+
+def invite_invalid():
+	return (INVITE_INVALID)
 
 
 def error_unknown_command(command):

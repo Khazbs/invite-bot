@@ -13,7 +13,7 @@ class BaseModel(pw.Model):
 class Invite(BaseModel):
 	code = pw.CharField()
 	guild = pw.CharField()
-	uses = pw.BigIntegerField(null=True)
+	max_uses = pw.BigIntegerField(null=True)
 	is_active = pw.BooleanField(default=False)
 	is_selected = pw.BooleanField(default=True)
 	begins_ts = pw.BigIntegerField(null=True)
@@ -24,6 +24,11 @@ class Invite(BaseModel):
 		)
 
 
+class Candidate(BaseModel):
+	user = pw.CharField(primary_key=True)
+	guild = pw.CharField(null=True)
+
+
 class InviteUse(BaseModel):
 	invite = pw.ForeignKeyField(Invite, backref='uses')
 	user = pw.CharField()
@@ -31,4 +36,4 @@ class InviteUse(BaseModel):
 
 
 def init():
-	database.create_tables((Invite, InviteUse))
+	database.create_tables((Invite, Candidate, InviteUse))
